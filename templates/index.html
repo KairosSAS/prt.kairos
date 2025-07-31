@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Visor Kairos</title>
+  <link href="https://cdn.jsdelivr.net/npm/tabulator-tables@5.4.4/dist/css/tabulator_midnight.min.css" rel="stylesheet">
+  <style>
+    body {
+      margin: 0;
+      font-family: "Segoe UI", sans-serif;
+      background-color: #1e1e1e;
+      color: #f0f0f0;
+    }
+    header {
+      background-color: #121212;
+      padding: 10px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    header h2 {
+      margin: 0;
+    }
+    .container {
+      display: flex;
+      height: calc(100vh - 50px);
+    }
+    .tabla-container {
+      flex: 1;
+      overflow-y: auto;
+      padding: 10px;
+    }
+    .visor-container {
+      flex: 1;
+      background-color: #2c2c2c;
+      padding: 10px;
+    }
+    iframe {
+      width: 100%;
+      height: 100%;
+      border: none;
+    }
+    .btn {
+      padding: 5px 10px;
+      margin-right: 5px;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    .btn-descargar { background-color: #2d89ef; color: white; }
+    .btn-subir { background-color: #28a745; color: white; }
+    .btn-logout { background-color: #dc3545; color: white; margin-left: auto; }
+  </style>
+</head>
+<body>
+  <header>
+    <h2>📁 Visor de Archivos - Kairos</h2>
+    <div>
+      <span id="usuario">Usuario: {{ usuario }}</span>
+      {% if es_admin %}
+      <button class="btn btn-subir" onclick="document.getElementById('archivo').click()">Subir</button>
+      <input type="file" id="archivo" style="display:none" onchange="subirArchivo(this.files[0])">
+      {% endif %}
+      <button class="btn btn-descargar" onclick="descargarSeleccionados()">Descargar ZIP</button>
+      <button class="btn btn-logout" onclick="location.href='/logout'">Salir</button>
+    </div>
+  </header>
+
+  <div class="container">
+    <div class="tabla-container">
+      <div id="tabla"></div>
+    </div>
+    <div class="visor-container">
+      <iframe id="visor" src=""></iframe>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/tabulator-tables@5.4.4/dist/js/tabulator.min.js"></script>
+  <script>
+    let tabla;
+    let archivosSeleccionados = [];
+
+    function actualizarTabla() {
+      fetch('/api/archivos')
+        .then(r => r.json())
+        .then(data => {
+          tabla.replaceData(data);
+        });
+    }
+
+    function descargarSeleccionados() {
+      if (archivosSeleccionados.length === 0) return alert("Selecciona al menos un archivo.");
+      fetch('/descargar_masivo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ archivos: archivosSeleccionados })
+      })
+      .then(res => res.blob())
+      .then(blob => {
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'descarga_kairos.zip';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      });
+    }
+
+    function subirArchivo(archivo) {
+      let formData = new FormData();
+      formData.append('archivo', archivo);
+      fetch('/subir', {
+        method: 'POST',
+        body: formData
+      })
+      .then(r => r.text())
+      .then(alert)
+      .then(() => actualizarTabla());
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+      tabla = new Tabulator("#tabla", {
+        layout: "fitColumns",
+        height: "100%",
+        pagination: "local",
+        paginationSize: 100,
+        columns: [
+          { formatter: "rowSelection", titleFormatter: "rowSelection", hozAlign: "center", width: 40, headerSort: false, cellClick: (e, cell) => {
+              cell.getRow().toggleSelect();
+            }
+          },
+          { title: "Nombre", field: "nombre", headerFilter: "input", sorter: "string" },
+          { title: "Fecha de Modificación", field: "fecha", headerFilter: "input", sorter: "datetime" },
+          { title: "Tipo", field: "tipo", headerFilter: "input", width: 80 },
+          { title: "Tamaño", field: "tamano", headerFilter: "input", width: 100 }
+        ],
+        rowSelected: function(row){
+          archivosSeleccionados.push(row.getData().nombre);
+          const nombre = row.getData().nombre;
+          const ext = nombre.split('.').pop().toLowerCase();
+          if (["pdf", "jpg", "jpeg", "png", "txt"].includes(ext)) {
+            document.getElementById("visor").src = "/descargar/" + encodeURIComponent(nombre);
+          } else {
+            document.getElementById("visor").src = "";
+            window.open("/descargar/" + encodeURIComponent(nombre), "_blank");
+          }
+        },
+        rowDeselected: function(row){
+          archivosSeleccionados = archivosSeleccionados.filter(n => n !== row.getData().nombre);
+        },
+      });
+
+      actualizarTabla();
+      setInterval(actualizarTabla, 30000);
+    });
+  </script>
+</body>
+</html>
